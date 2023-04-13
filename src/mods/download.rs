@@ -12,7 +12,7 @@ enum DownStatus {
     Error(&'static str)
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq,Eq, PartialOrd)]
 ///# Examples
 ///<h3> Auto - automatic 1 - 30<br>
 /// Normal: 1<br>
