@@ -38,7 +38,12 @@ fn main() {
     } else {
 
         let help = r#"
+    
+    DOWNLOAD FILE AS PARALLEL
+
+    ***************************************************
     Speed Options:
+        auto    - no line in
         normal  -  1
         fast    -  5
         fast1   - 10
@@ -49,6 +54,11 @@ fn main() {
         command: speed=fast
 
     exemple: ./download_parallel http://some.com/data.iso speed=fast
+    
+    ***************************************************
+    Big file, use default speed.     
+    ***************************************************
+
     "#;
         println!("{}", help);exit(0);
 

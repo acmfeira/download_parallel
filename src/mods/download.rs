@@ -103,8 +103,9 @@ impl Download {
 
                         t.spawn(move ||{
 
-                            //it force the smaller chunk first.
                             thread::sleep(std::time::Duration::from_millis(500));
+
+                            //it force the smaller chunk first.
                         
                             match reqw.bytes(start,end,|size_of|{
     
