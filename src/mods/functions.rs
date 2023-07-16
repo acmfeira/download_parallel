@@ -1,4 +1,4 @@
-use std::{process::exit, iter::Flatten, io::{Read, Write}};
+use std::{process::exit, iter::Flatten, io::{Read, Write}, path::PathBuf};
 
 use super::structs::UrlItems;
 
@@ -92,13 +92,14 @@ pub fn get_temp_dir() -> &'static str{
 
 }
 
-pub fn create_file(dir_saved: &'static str, new_name_file: &'static str) -> Option<String>{
+pub fn create_file(dir_saved: PathBuf) -> Option<&'static str>{
 
-    let save_at = &format!("{}/{new_name_file}", get_download_folder());
+    //let save_at = &format!("{}/{new_name_file}", get_download_folder());
 
-    let mut new_file = std::fs::File::create(save_at).unwrap();
+    let mut new_file = std::fs::File::create(dir_saved.clone()).unwrap();
 
-    let mut files = std::fs::read_dir(dir_saved)
+    let tmp_dir = get_temp_dir();
+    let mut files = std::fs::read_dir(tmp_dir)
         .unwrap()
         .map(|i| {
 
@@ -109,36 +110,46 @@ pub fn create_file(dir_saved: &'static str, new_name_file: &'static str) -> Opti
         
     files.sort();
 
-    let mut saved = Some(save_at.clone());
+    let ds = dir_saved.display().to_string().into_boxed_str();
+
+    let mut saved = Some(Box::leak(ds).trim());
 
     for f_name in files {
+        
+        match std::fs::File::open(format!("{tmp_dir}/{f_name}")) {
 
-        let full_f_name = format!("{dir_saved}/{f_name}");
+            Ok(mut file) =>  {
 
-        if let Ok(mut file) = std::fs::File::open(full_f_name){
-
-            let mut buff = vec![];
-
-            if let Ok(file_size) = file.read_to_end(&mut buff) {
-
-                if let Ok(file_size) = new_file.write(&buff) {
-
-                    //one chunk save as sucess !!!
-
-                } else {
-
-                    //have any error!!!! 
-                    //set Option to none
-                    saved = None;
-
-                    break;
+                let mut buff = vec![];
+    
+                if let Ok(file_size) = file.read_to_end(&mut buff) {
+    
+                    if let Ok(file_size) = new_file.write(&buff) {
+    
+                        //one chunk save as sucess !!!
+    
+                    } else {
+    
+                        //have any error!!!! 
+                        //set Option to none
+                        saved = None;
+    
+                        break;
+                    }
                 }
-            }
-        }        
+            },
+            Err(err) => {
+                //println!("{}", err.to_string());
+                //println!("{}", f_name);
+            }        
+    
+        }
     }
 
     //remove temp_dir
-    std::fs::remove_dir_all(dir_saved).unwrap();
+
+    std::fs::remove_dir_all(tmp_dir).unwrap();
 
     saved
+
 }

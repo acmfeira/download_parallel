@@ -1,68 +1,86 @@
 mod mods;
 use std::process::exit;
 
-use mods::{download::{Download, SpeedOption}};
+use fltk::app::App;
+use mods::{download::{Download}, ui_message::Message, ui_main::UI};
 
+pub enum Status {
+    OnPercent(f64),
+    OnStop(&'static str),
+    OnFinished(&'static str),
+    OnError(&'static str),
+}
 fn main() {
 
-    let url = std::env::args().filter_map(|i|{
-        if i.contains("http") {
-            Some(Box::leak(i.into_boxed_str()))
-        } else {None}
-    }).next();
+    let (tx,rx) = fltk::app::channel::<Status>();
 
-    let opc = std::env::args().filter_map(|i|{
+    let app = App::default();
 
-        if i.contains("speed=") {
-            let i = i.split("=").next().unwrap();
+        let mut ui = UI::new(tx);
+        ui.load();
 
-            let sec = match i {
-                "normal" => { SpeedOption::Normal },
-                "fast0" => { SpeedOption::Fast0 },
-                "fast1" => { SpeedOption::Fast1 },
-                "fast2" => { SpeedOption::Fast2 },
-                "super" => { SpeedOption::Super },
-                "ultra" => { SpeedOption::Ultra },
-                _=> {
-                    SpeedOption::Auto
-                }
-            };
-            Some(sec)
-        
-        } else {Some(SpeedOption::Auto)}
+    while app.wait() {
+        match rx.recv() {
 
-    }).next();
+            Some(Status::OnPercent(pct)) => {
 
-    let (url, opc) = if let Some(url) = url {
-        (url, opc.unwrap())
-    } else {
+                ui.set_progress(pct);
 
-        let help = r#"
+            },
+            Some(Status::OnFinished(f_name)) => {
+
+                ui.invisible();
+
+                let msg = format!("Download Finished\n{f_name}");
+                let mut msg = Message::show(&msg);
+
+                ui.set_progress(0.0);
+                ui.enable_up();
+                ui.set_button_label("Download");
+
+                let mut ui_ = ui.clone();
+
+                msg.on_close(move||{
+
+                    ui_.visible();
+
+                });
+
+            },
+            Some(Status::OnError(err)) => {
+
+                let msg = format!("Error Download\n{err}");
+                let mut msg = Message::show(&msg);
+
+                ui.set_progress(0.0);
+                ui.enable_up();
+                ui.set_button_label("Download");
+
+                let mut ui_ = ui.clone();
+                
+                msg.on_close(move||{
+
+                    ui_.visible();
+
+                });
+
+                ui.invisible();
+
+            },
+            Some(Status::OnStop(msg)) => {
+
+                ui.set_progress(0.0);
+
+            },
+            _=>{ }
+        }
+    }
     
-    DOWNLOAD FILE AS PARALLEL
+    //test_me();
+}
 
-    ***************************************************
-    Speed Options:
-        auto    - no line in
-        normal  -  1
-        fast    -  5
-        fast1   - 10
-        fast2   - 15
-        super   - 30
-        ultra   - 60
-        
-        command: speed=fast
+pub fn test_me(){
 
-    exemple: ./download_parallel http://some.com/data.iso speed=fast
-    
-    ***************************************************
-    Big file, use default speed.     
-    ***************************************************
-
-    "#;
-        println!("{}", help);exit(0);
-
-    }; 
 
     //ser with a lot of ISOS: https://crustywindo.ws/collection/Windows%207/
     //let url = "https://www.mirrorservice.org/sites/quakeunity.com/movies/2v2barnak&bacon.avi";
@@ -74,20 +92,5 @@ fn main() {
     //let url = "https://cdimage.debian.org/debian-cd/current-live/amd64/iso-hybrid/debian-live-11.6.0-amd64-standard.iso"; //302
     //let url = "https://crustywindo.ws/collection/Windows%207/Seven_VietNam_X86.iso";//400mb
     //let url = "https://crustywindo.ws/collection/Windows%203.1/winlgtpremstable1.zip";//9.3mb
-
-    //test!!!    
-    //it doesn't work so better!!! (site is slow)
-    //SiteUrls::get_urls("http://movie.basnetbd.com/Data/TV%20Series/The%20Big%20Bang%20Theory/");
-    
-    println!("\nPreparing data to download!!!!!");
-    Download::download(url,opc);
-    
-    //test_me();
-}
-
-pub fn test_me(){
-
-    //implement convert secons to Hour format 00:00:00
-    //std::fs::remove_dir_all("/tmp/temp_folder").unwrap();
     
 }

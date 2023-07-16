@@ -1,4 +1,4 @@
-use std::{process::exit, net::{TcpStream, SocketAddr}, fmt::Error, io::{Write, Read}, time::Duration};
+use std::{process::exit, net::{TcpStream, SocketAddr}, fmt::Error, io::{Write, Read}, time::Duration, sync::{Arc, Mutex}};
 
 use native_tls::{TlsConnector, TlsStream};
 
@@ -35,7 +35,7 @@ impl Reqwest {
 
     }
 
-    pub fn bytes<F: FnOnce(usize) + Copy>(&self, start: usize, end: usize, call_back: F) -> Result<Vec<u8>, ReqError>{
+    pub fn bytes<F: FnOnce(usize) + Copy>(&self, start: usize, end: usize, stop: Arc<Mutex<bool>>, call_back: F) -> Result<Vec<u8>, ReqError>{
 
         let url_items = self.url_items;
 
@@ -60,7 +60,7 @@ impl Reqwest {
                         loop {
                             if let Ok(size_of_resp) = stream.read(&mut buff) {
         
-                                if size_of_resp == 0 {break;}
+                                if size_of_resp == 0 || *stop.lock().unwrap() {break;}
                                 let data = &buff[..size_of_resp];
                                 acum.extend_from_slice(data);
                                 

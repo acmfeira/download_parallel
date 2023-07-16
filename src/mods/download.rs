@@ -1,194 +1,163 @@
-use std::{sync::{Arc, Mutex}, process::exit, io::Write, thread};
+use std::{sync::{Arc, Mutex}, process::exit, io::Write, thread, path::{Path, PathBuf}};
+
+use fltk::app::Sender;
+
+use crate::Status;
 
 use super::{reqwest::Reqwest, structs::ReqError, functions::{get_temp_dir, create_file}};
 
 pub struct Download{
-
+    tx: Sender<Status>,
 }
 
-enum DownStatus {
-    Percentage(f32),
-    Finished,
-    Error(&'static str)
-}
 
-#[derive(Debug, PartialEq,Eq, PartialOrd)]
-///# Examples
-///<h3> Auto - automatic 1 - 30<br>
-/// Normal: 1<br>
-/// Fast0: 5<br>
-/// Fast1: 10<br>
-/// Fast2: 15<br>
-/// Super: 30<br>
-/// Ultra: 60
-pub enum SpeedOption {
-    ///1-30
-    Auto,
-    ///1
-    Normal,
-    ///5
-    Fast0,
-    ///10
-    Fast1,
-    ///15
-    Fast2,
-    ///30
-    Super,
-    ///60
-    Ultra,
-}
 impl Download {
 
-    pub fn download(url: &'static str, speed: SpeedOption){
+    pub fn new(tx: Sender<Status>) -> Self {
 
-        let new_file_name = url.split("/").last().unwrap();
+        Self {tx: tx }
+    }
+
+    pub fn download(self, path: PathBuf, url: &'static str, parallel: usize, stop: Arc<Mutex<bool>>){
+        
+        //let new_file_name = url.split("/").last().unwrap();
 
         let full_size = Arc::new(Mutex::new(0));
-        let (tx, rx) = std::sync::mpsc::channel::<DownStatus>();
-
-        let now = std::time::Instant::now();
 
         let temp_dir = get_temp_dir();
 
-        //create temp dir
+        let tx = self.tx.clone();
+
         std::fs::create_dir_all(temp_dir).unwrap();        
 
-        match Reqwest::new(url){
-            Ok(reqw) => {
+        thread::spawn(move||{
 
-                let full_size_ = full_size.clone();
-                let tx_ = tx.clone();
-                
-                thread::scope(move |t|{
-
-                    let file_size = reqw.get_filesize();
-                    
-                    let def_size = 10000000;
-
-                    let quants = match speed {
-                        SpeedOption::Auto => {
-                            
-                            if file_size <= def_size {1} // 10mb
-                            else {30} 
-
-                        },
-                        SpeedOption::Normal => {
-                            1
-                        },
-                        SpeedOption::Fast0 => {
-                            5
-                        },
-                        SpeedOption::Fast1 => {
-                            10
-                        },
-                        SpeedOption::Fast2 => {
-                            15
-                        },
-                        SpeedOption::Super => {
-                            30
-                        },
-                        SpeedOption::Ultra => {
-                            60
-                        }
-                    };
-                    
-                    let chunks = Self::create_slices(file_size, quants);
-
-                    for (idx, (start, end)) in chunks.into_iter().enumerate() {
-
-                        let file_size  = file_size.clone();
-                        let reqw = reqw.clone();
-                        let full_size = full_size.clone();
-                        let tx = tx_.clone();
-
-                        t.spawn(move ||{
-
-                            thread::sleep(std::time::Duration::from_millis(500));
-
-                            //it force the smaller chunk first.
-                        
-                            match reqw.bytes(start,end,|size_of|{
+            match Reqwest::new(url){
+                Ok(reqw) => {
     
-                                *full_size.lock().unwrap() += size_of;
-            
-                                let fs = *full_size.lock().unwrap() as f32;
-                                let pct = fs * 100.0 / file_size as f32;
-
-                                let pct = format!("{:.1}", pct);
-
-                                print!("Downloading: {}%\r", pct);
-                                std::io::stdout().flush().unwrap();
-
-                            }) {
-                                //finished download chunk
-                                Ok(data) => {
+                    let full_size_ = full_size.clone();
+                    let tx_ = tx.clone();
+                    let tx = tx.clone();
+                    
+                    let stop = stop.clone();
+                    let stop_ = stop.clone();
+    
+                    let error_message = Arc::new(Mutex::new("Error download!!!!!"));
+                    let error_message_ = error_message.clone();
                                     
-                                    let temp_f_name = format!("{}/{:02}_temp_file.temp", temp_dir, idx);
-                                    //println!("{}", temp_f_name);   
-
-                                    std::fs::write(temp_f_name, &data).unwrap();
-                                },
-                                Err(err) => {
-                                    match err {
-                                        ReqError::ErrorFound(err) => {
-                                            tx.send(DownStatus::Error(err)).unwrap();
-                                        },
-                                        _=> {}
+                    thread::scope(move |t|{
+    
+                        let file_size = reqw.get_filesize();
+                        
+                        let def_size = 10000000;
+    
+                        let chunks = Self::create_slices(file_size, parallel);
+    
+                        for (idx, (start, end)) in chunks.into_iter().enumerate() {
+    
+                            let file_size  = file_size.clone();
+                            let reqw = reqw.clone();
+                            let full_size = full_size.clone();
+                            let tx = tx_.clone();
+                            let stop = stop_.clone();
+                            let stop_ = stop_.clone();
+                            let err_msg = error_message_.clone();
+    
+                            t.spawn(move ||{
+    
+                                thread::sleep(std::time::Duration::from_millis(500));
+    
+                                //it force the smaller chunk first.
+                                let st = stop_.clone();
+    
+                                match reqw.bytes(start,end, st, |size_of|{
+        
+                                    if !*stop_.lock().unwrap() {
+    
+                                        *full_size.lock().unwrap() += size_of;
+                
+                                        let fs = *full_size.lock().unwrap() as f64;
+                                        let pct = fs * 100.0 / file_size as f64;
+        
+                                        tx.send(Status::OnPercent(pct));
+        
+                                    }
+    
+                                }) {
+                                    //finished download chunk
+                                    Ok(data) => {
+                                        
+                                        if !*stop_.lock().unwrap() {
+    
+                                            let temp_f_name = format!("{}/{:02}_temp_file.temp", temp_dir, idx);
+    
+                                            std::fs::write(temp_f_name, &data).unwrap();
+    
+                                        }
+    
+                                    },
+                                    Err(err) => {
+                                        match err {
+                                            ReqError::ErrorFound(err) => {
+                                                *err_msg.lock().unwrap() = err;
+                                                *full_size.lock().unwrap() = 0;//set error!!!
+                                            },
+                                            _=> {}
+                                        }
                                     }
                                 }
+            
+                            });
+    
+                            if *stop.lock().unwrap() {
+                                break;
                             }
+                        }
         
-                        });
+                    });
+    
+                    if !*stop.lock().unwrap() {
+
+                        if *full_size_.lock().unwrap() > 0 {
+    
+                            println!("Finished created file!!");
+                            if let Some(full_name_file) = create_file(path){
+
+                                tx.send(Status::OnFinished(full_name_file));
+
+                            }else {
+                                //error criate final file!!!!
+                                println!("error criate final file!!!!");
+                            };
+        
+        
+                        } else {
+                            println!("Null else");
+                            //println!("Error: {}", stop.lock().unwrap());
+                            //tx.send(Status::OnStop(*error_message.lock().unwrap()));
+                            //tx.send(Status::OnError(*error_message.lock().unwrap()));
+                        }
+                    } else {
+                        println!("Stoped");
+                        tx.send(Status::OnStop(*error_message.lock().unwrap()));
 
                     }
-    
-                });
 
-                if *full_size_.lock().unwrap() > 0 {
-
-                    *&tx.send(DownStatus::Finished).unwrap();
-
-                } else {
-                    *&tx.send(DownStatus::Error("Error download!!!!!")).unwrap();
-                }
-            },
-            Err(err) => {
-                match err {
-                    ReqError::ErrorFound(err) => {
-                        tx.send(DownStatus::Error(err)).unwrap();
+                },
+                Err(err) => {
+                    match err {
+                        ReqError::ErrorFound(err) => {
+                            tx.send(Status::OnError(err));
+                        }
+                        
                     }
-                    
                 }
             }
-        }
-
-        loop {
-            match rx.recv() {
-                Ok(DownStatus::Percentage(pct)) => {
-
-                },
-                Ok(DownStatus::Finished) => {
-
-                    println!("100.0%");
-                    println!("\nFinished Download in {} seconds", now.elapsed().as_secs());
-
-                    println!("\nCreating and saving local file...");
-                    if let Some(full_name_file) = create_file(temp_dir, new_file_name){
-
-                        println!("\nSaved as sucess: {}", full_name_file);
-                    };
-        
-                    break;
-
-                },
-                Ok(DownStatus::Error(err)) => {
-
-                    println!("Error:\n{err}\nABOARTED!!!!");exit(0);
-                }
-                _=> {}
-            }
-        }
     
+    
+
+        });
+
     }
 
     fn create_slices(file_size: usize, quants: usize) -> Vec<(usize, usize)>{
